@@ -1,0 +1,176 @@
+%% Análise espectral completa (double-sided com fftshift)
+clear; clc; close all; % fecha todas as figuras abertas
+
+% --- Leitura do arquivo ---
+T = readtable('Osciloscopio.txt', 'Delimiter', ',', 'MultipleDelimsAsOne', true);
+T = T(:, all(~ismissing(T)));
+tensao = str2double(T{:,2});
+
+% --- Vetor de tempo manual ---
+tempo = -0.049280000000 : 0.000040000000 : 0.049960000000;
+
+% Ajusta tamanhos se forem diferentes
+if length(tempo) ~= length(tensao)
+    warning('Tamanhos diferentes: tempo (%d) e tensao (%d). Ajustando pelo menor.', length(tempo), length(tensao));
+    N = min(length(tempo), length(tensao));
+    tempo = tempo(1:N);
+    tensao = tensao(1:N);
+end
+
+% --- Parâmetros de amostragem ---
+dt = mean(diff(tempo));
+fs = 1/dt;
+N = length(tensao);
+
+% --- FFT e eixo de frequência (double-sided) ---
+Y = fftshift(fft(tensao))/N;               % FFT centralizada
+f = (-N/2 : N/2-1) * (fs/N);             % eixo de frequência (Hz)
+magY = abs(Y);                       % magnitude normalizada
+phaseY = angle(Y);
+
+% --- Energia total ---
+ET = sum(abs(Y).^2);
+
+% --- Plot do sinal no tempo ---
+figure;
+plot(tempo, tensao, 'b', 'LineWidth', 1.2);
+grid on; xlabel('Tempo (s)'); ylabel('Tensão (V)');
+title('Sinal de Tensão vs Tempo');
+
+% --- Espectro de magnitude e fase ---
+figure;
+subplot(2,1,1);
+plot(f, magY, 'r', 'LineWidth', 1.2);
+grid on; xlabel('Frequência (Hz)'); ylabel('|V(f)|');
+title('Espectro de Magnitude (double-sided)');
+subplot(2,1,2);
+plot(f, unwrap(phaseY), 'k', 'LineWidth', 1.0);
+grid on; xlabel('Frequência (Hz)'); ylabel('Fase (rad)');
+title('Espectro de Fase (double-sided)');
+
+% ==========================================================
+% Energia acumulada e f_p (90% ET)
+% ==========================================================
+% energia parcial acumulando a partir de f = 0 (módulo)
+mid = ceil(N/2);
+E_pos = abs(Y(mid:end)).^2;           % lado positivo (0 até +fs/2)
+cumE = cumsum(E_pos);
+fp_idx = find(cumE >= 0.9 * sum(E_pos), 1, 'first');
+fp = f(mid - 1 + fp_idx);
+
+% --- Marca f_p no espectro ---
+figure;
+plot(f, magY, 'r', 'LineWidth', 1.2); hold on;
+yl = ylim;
+plot([fp fp], yl, '--k', 'LineWidth', 1.0);
+grid on; xlabel('Frequência (Hz)'); ylabel('|Y(f)|');
+title(sprintf('Espectro de Magnitude com f_p = %.3f Hz (90%% ET)', fp));
+legend('Magnitude', sprintf('f_p (90%% ET) = %.3f Hz', fp));
+
+
+% ==========================================================
+% Exibição dos resultados
+% ==========================================================
+fprintf('===== RESULTADOS =====\n');
+fprintf('N = %d, dt = %.12g s, fs = %.3f Hz\n', N, dt, fs);
+fprintf('Energia total ET = %.6e\n', ET);
+fprintf('Frequência de passagem f_p (90%% ET) = %.3f Hz\n\n', fp);
+
+% ==========================================================
+% Filtragem espectral e ajuste de alfa_p
+% ==========================================================
+
+% --- Cria janela retangular unitária de -fp a +fp ---
+janela = double(abs(f) <= fp);
+
+% --- Aplica janela no espectro ---
+Y_filtrado = Y .* janela;
+
+% --- Transformada inversa preliminar ---
+x_temp = ifft(ifftshift(Y_filtrado)) * N;  % reconstrução parcial
+
+% --- Calcula alfa_p necessário para que max(|x|) = 1/1023 ---
+alfa_p = (5/1023) / max(abs(x_temp(:)));   % garante escalar
+
+% --- Aplica alfa_p na janela e refaz filtragem ---
+Y_filtrado = Y .* (alfa_p * janela);
+x_filtrado = ifft(ifftshift(Y_filtrado)) * N;
+
+% --- Exibe resultado ---
+fprintf('Valor calculado de alfa_p = %.6e\n', alfa_p);
+
+figure;
+plot(tempo, real(x_filtrado), 'm', 'LineWidth', 1.2);
+grid on;
+xlabel('Tempo (s)');
+ylabel('Amplitude');
+title('Sinal no Tempo devido a um ripple constante \\alpha_p_p');
+
+% --- Calcula VR e converte para dB ---
+VR = 1 + alfa_p;
+VR_dB = 20*log10(VR);
+
+fprintf('VR = %.6f (valor linear)\n', VR);
+fprintf('VR = %.6f dB\n', VR_dB);
+
+% ==========================================================
+% Ajuste de alfa_r (aplicado SÓ em |f| > fp; dentro = 0)
+% ==========================================================
+
+% --- encontra índices fora de ±fp
+idx_fora = abs(f) > fp;
+
+% --- componente temporal causada apenas pelas partes fora de +-fp
+x_fora = ifft(ifftshift(Y .* idx_fora)) * N;
+
+% --- checa divisão por zero (caso não haja energia fora de fp)
+max_x_fora = max(abs(x_fora(:)));
+if max_x_fora == 0
+    warning('Não há energia fora de ±fp. alfa_r não pode ser calculado.');
+    alfa_r = 0;
+else
+    % --- calcula alfa_r para que max(|x_inv|) <= 5/1023
+    limite = 5/1023;
+    alfa_r = limite / max_x_fora;
+end
+
+% --- monta espectro modificado e reconstrói no tempo
+Y_mod = zeros(size(Y));       % inicializa espectro
+Y_mod(idx_fora) = alfa_r * Y(idx_fora);  % aplica alfa_r só fora de ±fp
+
+x_mod = ifft(ifftshift(Y_mod)) * N;
+
+% --- resultados e plots ---
+fprintf('alfa_r calculado = %.6e\n', alfa_r);
+
+% --- converte alfa_r para dB ---
+if alfa_r > 0
+    alfa_r_dB = 20*log10(alfa_r);
+else
+    alfa_r_dB = -Inf;
+end
+fprintf('alfa_r em dB = %.3f dB\n', alfa_r_dB);
+
+fprintf('Amplitude máxima esperada (|x_mod|_max) = %.6e\n', max(abs(x_mod(:))));
+
+figure;
+plot(tempo, real(x_mod), 'LineWidth', 1.2);
+grid on;
+xlabel('Tempo (s)');
+ylabel('Amplitude');
+title(sprintf('Sinal Reconstruído com alpha_r = %.6e (mask fora de |f|<=%.3f Hz)', alfa_r, fp));
+
+% --- Plot do espectro modificado (Y_mod) ---
+figure;
+plot(f, abs(Y_mod), 'b', 'LineWidth', 1.2); hold on;
+
+% --- adiciona retas verticais em ±fp ---
+yl = ylim;
+plot([fp fp], yl, '--k', 'LineWidth', 1.0);
+plot([-fp -fp], yl, '--k', 'LineWidth', 1.0);
+
+grid on;
+xlabel('Frequência (Hz)');
+ylabel('|Y_{mod}(f)|');
+title(sprintf('Espectro Modificado |Y_{mod}(f)| com \\alpha_r = %.6e', alfa_r));
+legend('|Y_{mod}(f)|', '±f_p');
