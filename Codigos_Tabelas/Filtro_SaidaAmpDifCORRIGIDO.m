@@ -109,16 +109,13 @@ alfa_p = (1/1023) / max(abs(x_in(:)));
 alfa_r = (1/1023) / max(abs(x_out(:)));
 
 % --- Resultados ---
-VR = 1 + alfa_r;
+VR = 1 + alfa_p;
 VR_dB = 20*log10(VR);
 alfa_r_dB = 20*log10(alfa_r);
 
-fprintf('VR = %.6f dB\n', VR_dB);
-fprintf('alfa_r calculado = %.9e\n', alfa_r);
-
-
 fprintf('alfa_p = %.12e\n', alfa_p);
-
+fprintf('VR = %.6f dB\n', VR_dB);
+fprintf('alfa_r calculado = %.9e ou %.9e dB\n', alfa_r, alfa_r_dB);
 
 % --- Gráficos de verificação ---
 figure;
