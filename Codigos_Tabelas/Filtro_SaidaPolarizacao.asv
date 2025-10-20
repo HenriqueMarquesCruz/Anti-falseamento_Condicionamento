@@ -85,30 +85,19 @@ fprintf('===== RESULTADOS =====\n');
 fprintf('N = %d, dt = %.12g s, fs = %.3f Hz\n', N, dt, fs);
 fprintf('Energia total ET = %.6e\n', ET);
 fprintf('Frequência de passagem f_p (90%% ET, sem f=0) = %.3f Hz\n\n', fp);
-fprintf('max_Y: = %.6e\n', max(abs(Y)));
 
 % ==========================================================
 % Filtragem espectral e ajuste de alfa_p
 % ==========================================================
 janela = double(abs(f) <= fp);
 Y_filtrado = Y .* janela;
-fprintf('max_Y: = %.6e\n', max(abs(Y)));
-fprintf('max_Y: = %.6e\n', max(janela));
-
-x_temp = ifft(Y_filtrado) * N;
+x_temp = ifft(ifftshift(Y_filtrado)) * N;
 alfa_p = (5/1023) / max(abs(x_temp(:)));
 Y_filtrado = Y .* (alfa_p * janela);
 x_filtrado = ifft(ifftshift(Y_filtrado)) * N;
 fprintf('max_x dentro: = %.6e\n', max(abs(x_temp(:))));
 
 fprintf('Valor calculado de alfa_p = %.6e\n', alfa_p);
-figure;
-subplot(2,1,1);
-plot(f, abs(Y_filtrado), 'b', 'LineWidth', 1.2);
-grid on;
-xlabel('Frequência (Hz)');
-ylabel('|Y_{filtrado}|');
-title('Magnitude do espectro filtrado');
 
 figure;
 plot(tempo, real(x_filtrado), 'm', 'LineWidth', 1.2);
@@ -125,10 +114,7 @@ fprintf('VR = %.6f dB\n', VR_dB);
 % ==========================================================
 % Ajuste de alfa_r (aplicado SÓ em |f| > fp; dentro = 0)
 % ==========================================================
-
-idx_fora = double(abs(f) > fp);
-fprintf('idx_xfora 1: = %.6e\n', idx_fora);
-
+idx_fora = abs(f) > fp;
 x_fora = ifft(ifftshift(Y .* idx_fora)) * N;
 max_x_fora = max(abs(x_fora(:)));
 if max_x_fora == 0
@@ -140,13 +126,7 @@ alfa_r = limite / max_x_fora;
 fprintf('max_xfora 1: = %.6e\n', max_x_fora);
 
 end
-figure;
-subplot(2,1,1);
-plot(f, abs(Y .* idx_fora), 'b', 'LineWidth', 1.2);
-grid on;
-xlabel('Frequência (Hz)');
-ylabel('|Y_{filtrado}|');
-title('Magnitude do espectro filtrado');
+
 Y_mod = zeros(size(Y));
 Y_mod(idx_fora) = alfa_r * Y(idx_fora);
 x_mod = ifft(ifftshift(Y_mod)) * N;
